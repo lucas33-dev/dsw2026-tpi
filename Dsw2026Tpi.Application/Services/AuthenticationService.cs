@@ -5,6 +5,8 @@ using Dsw2026Tpi.CrossCutting.Helpers;
 using Dsw2026Tpi.CrossCutting.Identity;
 using Dsw2026Tpi.CrossCutting.Resources;
 using Dsw2026Tpi.Data.Identity;
+using Dsw2026Tpi.Domain.Entities;
+using Dsw2026Tpi.Domain.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 
@@ -16,18 +18,21 @@ public class AuthenticationService : IAuthenticationService
     private readonly ISignInService _signInManager;
     private readonly RoleManager<IdentityRole> _roleManager;
     private readonly JwtService _jwtService;
+    private readonly IPersistence _persistence;
     private readonly ILogger<AuthenticationService> _logger;
 
     public AuthenticationService(UserManager<ApplicationUser> userManager,
         ISignInService signInManager,
         RoleManager<IdentityRole> roleManager,
         JwtService jwtService,
+        IPersistence persistence,
         ILogger<AuthenticationService> logger)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _roleManager = roleManager;
         _jwtService = jwtService;
+        _persistence = persistence;
         _logger = logger;
     }
 
@@ -45,7 +50,7 @@ public class AuthenticationService : IAuthenticationService
 
         var role = (await _userManager.GetRolesAsync(user)).FirstOrDefault();
 
-        var token  = _jwtService.GenerateToken(user.UserName!, role);
+        var token = _jwtService.GenerateToken(user.UserName!, role);
 
         return new LoginAdminModel.Response(
             token,
@@ -53,9 +58,54 @@ public class AuthenticationService : IAuthenticationService
         );
     }
 
-    public async Task<LoginPatientModel.Response> LoginPatient(LoginPatientModel.Response request)
+    public async Task<LoginPatientModel.Response> LoginPatient(LoginPatientModel.Request request)
     {
-        throw new NotImplementedException();
+        if (!request.Email.IsEmailValid()) throw new AuthenticationException();
+        if (!request.Dni.IsDniValid()) throw new AuthenticationException();
+
+        var existingPatient = await _persistence.First<Patient>(p => p.Dni == request.Dni && !p.Deleted);
+
+        ApplicationUser user;
+
+        if (existingPatient is not null)
+        {
+            user = await _userManager.FindByIdAsync(existingPatient.UserId)
+                ?? throw new AuthenticationException();
+
+            if (!string.Equals(user.Email, request.Email, StringComparison.OrdinalIgnoreCase))
+                throw new AuthenticationException();
+        }
+        else
+        {
+            var existingUser = await _userManager.FindByEmailAsync(request.Email);
+            if (existingUser is not null) throw new AuthenticationException();
+
+            user = new ApplicationUser
+            {
+                UserName = request.Email,
+                Email = request.Email,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            var creationResult = await _userManager.CreateAsync(user);
+
+            if (!creationResult.Succeeded) throw new ConflictException(nameof(ErrorCodes.REGISTER_USER_CONFLICT),
+                ErrorCodes.REGISTER_USER_CONFLICT)
+                    .WithDetail(creationResult.Errors.Select(e => (e.Code, e.Description)));
+
+            await _userManager.AddToRoleAsync(user, Roles.Patient);
+
+            var patient = new Patient(user.Id, request.Dni, request.Email);
+            await _persistence.Add(patient);
+
+            _logger.LogInformation("Paciente registrado automáticamente: {Email}", request.Email);
+        }
+
+        var role = (await _userManager.GetRolesAsync(user)).FirstOrDefault();
+        var token = _jwtService.GenerateToken(user.UserName!, role);
+
+        return new LoginPatientModel.Response(token, role);
     }
 
     public async Task<RegisterModel.Response> Register(RegisterModel.Request request)
@@ -76,7 +126,7 @@ public class AuthenticationService : IAuthenticationService
         if (!result.Succeeded) throw new ConflictException(nameof(ErrorCodes.REGISTER_USER_CONFLICT),
             ErrorCodes.REGISTER_USER_CONFLICT)
                 .WithDetail(result.Errors.Select(e => (e.Code, e.Description)));
-       
+
         _ = await _userManager.AddToRoleAsync(user, Roles.Administrator);
 
         _logger.LogInformation("Usuario registrado: {Email}", request.Email);
