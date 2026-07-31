@@ -1,24 +1,26 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Dsw2026Tpi.Application.Dtos;
+﻿using Dsw2026Tpi.Application.Dtos;
 using Dsw2026Tpi.Application.Interfaces;
 using Dsw2026Tpi.CrossCutting.Exceptions;
 using Dsw2026Tpi.CrossCutting.Helpers;
 using Dsw2026Tpi.Domain.Entities;
 using Dsw2026Tpi.Domain.Interfaces;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Dsw2026Tpi.Application.Services;
 
 public class AvailabilityService : IAvailabilityService
 {
     private readonly IPersistence _persistence;
+    private readonly ILogger<AvailabilityService> _logger;
 
-    public AvailabilityService(IPersistence persistence)
+    public AvailabilityService(IPersistence persistence, ILogger<AvailabilityService> logger)
     {
         _persistence = persistence;
+        _logger = logger;
     }
-
     public async Task<List<AvailabilityModel.DayResponse>> GetByDoctor(Guid doctorId)
     {
         var doctor = await _persistence.GetById<Doctor>(doctorId);
@@ -44,7 +46,8 @@ public class AvailabilityService : IAvailabilityService
         if (doctor is null) throw new EntityNotFoundException(nameof(Doctor));
 
         ValidateRequest(request);
-
+        _logger.LogInformation("Iniciando generacion de disponibilidad para el medico {DoctorId} con {DaysCount} dias",
+        request.DoctorId, request.Days.Count);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var year = today.Year;
         var month = today.Month;
@@ -125,6 +128,7 @@ public class AvailabilityService : IAvailabilityService
                 }
             }
         }
+        _logger.LogInformation("Disponibilidad generada correctamente para el medico {DoctorId}", request.DoctorId);
     }
 
     private static List<DateOnly> GetDatesForDayOfWeek(int year, int month, DayOfWeek dayOfWeek)
