@@ -73,7 +73,10 @@ public class AuthenticationService : IAuthenticationService
                 ?? throw new AuthenticationException();
 
             if (!string.Equals(user.Email, request.Email, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Intento de login de paciente con email no coincidente para DNI {Dni}", request.Dni);
                 throw new AuthenticationException();
+            }
         }
         else
         {
@@ -104,7 +107,7 @@ public class AuthenticationService : IAuthenticationService
 
         var role = (await _userManager.GetRolesAsync(user)).FirstOrDefault();
         var token = _jwtService.GenerateToken(user.UserName!, role);
-
+        _logger.LogInformation("Login de paciente exitoso: {Email}", request.Email);
         return new LoginPatientModel.Response(token, role);
     }
 

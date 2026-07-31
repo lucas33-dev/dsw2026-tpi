@@ -1,24 +1,26 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Dsw2026Tpi.Application.Dtos;
+﻿using Dsw2026Tpi.Application.Dtos;
 using Dsw2026Tpi.Application.Interfaces;
 using Dsw2026Tpi.CrossCutting.Exceptions;
 using Dsw2026Tpi.Domain.Entities;
 using Dsw2026Tpi.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Dsw2026Tpi.Application.Services;
 
 public class AppointmentService : IAppointmentService
 {
     private readonly IPersistence _persistence;
+    private readonly ILogger<AppointmentService> _logger;
 
-    public AppointmentService(IPersistence persistence)
+    public AppointmentService(IPersistence persistence, ILogger<AppointmentService> logger)
     {
         _persistence = persistence;
+        _logger = logger;
     }
-
     public async Task<AppointmentModel.Response> Create(AppointmentModel.Request request)
     {
         ValidateRequest(request);
@@ -41,7 +43,6 @@ public class AppointmentService : IAppointmentService
         var patient = await _persistence.First<Patient>(p => p.Dni == request.Patient.Dni && !p.Deleted);
         if (patient is null)
             throw new EntityNotFoundException(nameof(Patient));
-
         try
         {
             slot.Book();
@@ -50,12 +51,16 @@ public class AppointmentService : IAppointmentService
             var appointment = new Appointment(slot.Id, patient.Id, request.Reason);
             await _persistence.Add(appointment);
 
+            _logger.LogInformation("Turno reservado: paciente {PatientId}, slot {SlotId}, fecha {Date}",
+                patient.Id, slot.Id, slot.SlotDate);
+
             return await BuildResponse(appointment, slot, doctor, patient);
         }
         catch (DbUpdateException)
         {
             slot.Release();
             await _persistence.Update(slot);
+            _logger.LogWarning("Conflicto de reserva: el slot {SlotId} ya fue tomado por otro paciente", slot.Id);
             throw new BusinessRuleException("El turno ya fue reservado por otro paciente", "APPOINTMENT_CONFLICT");
         }
     }
@@ -99,6 +104,7 @@ public class AppointmentService : IAppointmentService
             slot.Release();
             await _persistence.Update(slot);
         }
+        _logger.LogInformation("Turno cancelado: {AppointmentId}", id);
     }
 
     public async Task<List<AppointmentModel.Response>> GetByDate(DateOnly? date)
