@@ -35,4 +35,9 @@ public class AvailabilityRule : EntityBase
     {
         Deleted = true;
     }
+
+    public void Reactivate()
+    {
+        Deleted = false;
+    }
 }
