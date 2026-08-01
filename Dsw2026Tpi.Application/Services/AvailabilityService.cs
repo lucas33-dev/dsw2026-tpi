@@ -5,6 +5,7 @@ using Dsw2026Tpi.CrossCutting.Helpers;
 using Dsw2026Tpi.Domain.Entities;
 using Dsw2026Tpi.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
+
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -102,11 +103,11 @@ public class AvailabilityService : IAvailabilityService
                 await _persistence.Add(rule);
             }
 
-            var dates = GetDatesForDayOfWeek(year, month, dayOfWeek)
-                .Where(d => d >= today)
-                .ToList();
+            var dates = AvailabilityCalculator.GetDatesForDayOfWeek(year, month, dayOfWeek)
+    .Where(d => d >= today)
+    .ToList();
 
-            var timeSlots = GetTimeSlots(startTime, endTime);
+            var timeSlots = AvailabilityCalculator.GetTimeSlots(startTime, endTime);
 
             foreach (var date in dates)
             {
